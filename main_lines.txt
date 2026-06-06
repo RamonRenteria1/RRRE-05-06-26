@@ -1,0 +1,592 @@
+001: import flet as ft
+002: import mysql.connector
+003: import hashlib
+004: 
+005: DB_SERVER = {
+006:     "host": "localhost",
+007:     "user": "root",
+008:     "password": ""
+009: }
+010: 
+011: DB_NAME = "crud_alumnos_leyva"
+012: 
+013: 
+014: def hash_password(password):
+015:     return hashlib.sha256(password.encode()).hexdigest()
+016: 
+017: 
+018: def crear_base_y_tablas():
+019:     conn = mysql.connector.connect(**DB_SERVER)
+020:     cursor = conn.cursor()
+021: 
+022:     cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_NAME}")
+023:     cursor.execute(f"USE {DB_NAME}")
+024: 
+025:     cursor.execute("""
+026:         CREATE TABLE IF NOT EXISTS usuarios (
+027:             id INT AUTO_INCREMENT PRIMARY KEY,
+028:             nombre VARCHAR(100) NOT NULL,
+029:             usuario VARCHAR(50) NOT NULL UNIQUE,
+030:             password VARCHAR(255) NOT NULL
+031:         )
+032:     """)
+033: 
+034:     cursor.execute("""
+035:         CREATE TABLE IF NOT EXISTS alumnos (
+036:             matricula VARCHAR(20) PRIMARY KEY,
+037:             apellido_paterno VARCHAR(80) NOT NULL,
+038:             apellido_materno VARCHAR(80),
+039:             nombres VARCHAR(100) NOT NULL,
+040:             curp VARCHAR(18) NOT NULL,
+041:             especialidad VARCHAR(100),
+042:             telefono VARCHAR(10),
+043:             ciudad_origen VARCHAR(100),
+044:             estado VARCHAR(100),
+045:             disciplina VARCHAR(100)
+046:         )
+047:     """)
+048: 
+049:     cursor.execute("""
+050:         INSERT IGNORE INTO usuarios(nombre, usuario, password)
+051:         VALUES (%s, %s, %s)
+052:     """, ("Administrador Leyva", "admin", hash_password("Admin123")))
+053: 
+054:     conn.commit()
+055:     conn.close()
+056: 
+057: 
+058: def conectar():
+059:     crear_base_y_tablas()
+060:     return mysql.connector.connect(
+061:         host="localhost",
+062:         user="root",
+063:         password="",
+064:         database=DB_NAME
+065:     )
+066: 
+067: 
+068: def main(page: ft.Page):
+069:     page.title = "Leyva Proyecto - CRUD Alumnos"
+070:     page.bgcolor = "#EEF2F6"
+071:     page.window_width = 1200
+072:     page.window_height = 750
+073:     page.scroll = "auto"
+074: 
+075:     usuario_actual = {"id": None, "nombre": None}
+076: 
+077:     estados = [
+078:         "Chihuahua", "Durango", "Sonora", "Coahuila", "Nuevo León",
+079:         "Jalisco", "CDMX", "Estado de México", "Sinaloa", "Veracruz"
+080:     ]
+081: 
+082:     disciplinas = [
+083:         "Fútbol", "Basquetbol", "Voleibol", "Béisbol", "Atletismo",
+084:         "Box", "Natación", "Ninguna"
+085:     ]
+086: 
+087:     def mensaje(texto, color="red"):
+088:         page.snack_bar = ft.SnackBar(ft.Text(texto), bgcolor=color)
+089:         page.snack_bar.open = True
+090:         page.update()
+091: 
+092:     def limpiar():
+093:         page.controls.clear()
+094: 
+095:     def validar_curp(curp):
+096:         return len(curp) == 18
+097: 
+098:     def validar_telefono(tel):
+099:         return tel.isdigit() and len(tel) == 10
+100: 
+101:     def mostrar_login():
+102:         limpiar()
+103: 
+104:         txt_usuario = ft.TextField(label="Usuario", width=320)
+105:         txt_password = ft.TextField(
+106:             label="Contraseña",
+107:             password=True,
+108:             can_reveal_password=True,
+109:             width=320
+110:         )
+111: 
+112:         reg_nombre = ft.TextField(label="Nombre completo", width=320)
+113:         reg_usuario = ft.TextField(label="Usuario", width=320)
+114:         reg_password = ft.TextField(
+115:             label="Contraseña",
+116:             password=True,
+117:             can_reveal_password=True,
+118:             width=320
+119:         )
+120:         reg_confirmar = ft.TextField(
+121:             label="Confirmar contraseña",
+122:             password=True,
+123:             can_reveal_password=True,
+124:             width=320
+125:         )
+126: 
+127:         form_registro = ft.Column(
+128:             visible=False,
+129:             horizontal_alignment="center",
+130:             controls=[
+131:                 ft.Text("Crear cuenta", size=22, weight="bold"),
+132:                 reg_nombre,
+133:                 reg_usuario,
+134:                 reg_password,
+135:                 reg_confirmar,
+136:             ]
+137:         )
+138: 
+139:         def login(e):
+140:             try:
+141:                 conn = conectar()
+142:                 cursor = conn.cursor(dictionary=True)
+143: 
+144:                 cursor.execute(
+145:                     "SELECT * FROM usuarios WHERE usuario=%s AND password=%s",
+146:                     (txt_usuario.value, hash_password(txt_password.value))
+147:                 )
+148: 
+149:                 user = cursor.fetchone()
+150:                 conn.close()
+151: 
+152:                 if user:
+153:                     usuario_actual["id"] = user["id"]
+154:                     usuario_actual["nombre"] = user["nombre"]
+155:                     mostrar_panel()
+156:                 else:
+157:                     mensaje("Usuario o contraseña incorrectos. Puedes crear una cuenta.")
+158: 
+159:             except Exception as ex:
+160:                 mensaje(f"Error de conexión: {ex}")
+161: 
+162:         def crear_cuenta(e):
+163:             form_registro.visible = True
+164:             page.update()
+165: 
+166:         def guardar_cuenta(e):
+167:             if not reg_nombre.value or not reg_usuario.value or not reg_password.value:
+168:                 mensaje("Llena todos los campos")
+169:                 return
+170: 
+171:             if reg_password.value != reg_confirmar.value:
+172:                 mensaje("Las contraseñas no coinciden")
+173:                 return
+174: 
+175:             try:
+176:                 conn = conectar()
+177:                 cursor = conn.cursor()
+178: 
+179:                 cursor.execute(
+180:                     "INSERT INTO usuarios(nombre, usuario, password) VALUES(%s,%s,%s)",
+181:                     (
+182:                         reg_nombre.value,
+183:                         reg_usuario.value,
+184:                         hash_password(reg_password.value)
+185:                     )
+186:                 )
+187: 
+188:                 conn.commit()
+189:                 conn.close()
+190: 
+191:                 mensaje("Cuenta creada correctamente", "green")
+192: 
+193:                 reg_nombre.value = ""
+194:                 reg_usuario.value = ""
+195:                 reg_password.value = ""
+196:                 reg_confirmar.value = ""
+197:                 form_registro.visible = False
+198:                 page.update()
+199: 
+200:             except mysql.connector.IntegrityError:
+201:                 mensaje("Ese usuario ya existe")
+202:             except Exception as ex:
+203:                 mensaje(f"Error: {ex}")
+204: 
+205:         form_registro.controls.append(
+206:             ft.Button("Guardar cuenta", on_click=guardar_cuenta)
+207:         )
+208: 
+209:         page.add(
+210:             ft.Container(
+211:                 content=ft.Column(
+212:                     horizontal_alignment="center",
+213:                     controls=[
+214:                         ft.Text(
+215:                             "Sistema CRUD Alumnos",
+216:                             size=30,
+217:                             weight="bold",
+218:                             color="#1F3A5F"
+219:                         ),
+220:                         ft.Text("Proyecto Leyva - Python + Flet + MySQL"),
+221:                         txt_usuario,
+222:                         txt_password,
+223:                         ft.Row(
+224:                             alignment="center",
+225:                             controls=[
+226:                                 ft.Button("Iniciar sesión", on_click=login),
+227:                                 ft.Button("Crear cuenta", on_click=crear_cuenta),
+228:                             ],
+229:                         ),
+230:                         form_registro,
+231:                     ],
+232:                 ),
+233:                 padding=40,
+234:                 alignment=ft.alignment.center,
+235:             )
+236:         )
+237: 
+238:     def mostrar_panel():
+239:         limpiar()
+240: 
+241:         matricula = ft.TextField(label="Matrícula", width=180)
+242:         ap_paterno = ft.TextField(label="Apellido paterno", width=220)
+243:         ap_materno = ft.TextField(label="Apellido materno", width=220)
+244:         nombres = ft.TextField(label="Nombre(s)", width=250)
+245:         curp = ft.TextField(label="CURP", width=250)
+246:         especialidad = ft.TextField(label="Especialidad", width=250)
+247:         telefono = ft.TextField(label="Teléfono", width=180)
+248:         ciudad = ft.TextField(label="Ciudad de origen", width=230)
+249: 
+250:         estado = ft.Dropdown(
+251:             label="Estado",
+252:             width=230,
+253:             options=[ft.dropdown.Option(e) for e in estados]
+254:         )
+255: 
+256:         disciplina = ft.Dropdown(
+257:             label="Disciplina deportiva",
+258:             width=230,
+259:             options=[ft.dropdown.Option(d) for d in disciplinas]
+260:         )
+261: 
+262:         buscar = ft.TextField(label="Buscar por matrícula o apellido", width=330)
+263: 
+264:         tabla = ft.DataTable(
+265:             columns=[
+266:                 ft.DataColumn(ft.Text("Matrícula")),
+267:                 ft.DataColumn(ft.Text("Nombre")),
+268:                 ft.DataColumn(ft.Text("CURP")),
+269:                 ft.DataColumn(ft.Text("Teléfono")),
+270:                 ft.DataColumn(ft.Text("Estado")),
+271:                 ft.DataColumn(ft.Text("Disciplina")),
+272:             ],
+273:             rows=[]
+274:         )
+275: 
+276:         def limpiar_campos():
+277:             matricula.disabled = False
+278: 
+279:             for c in [
+280:                 matricula, ap_paterno, ap_materno, nombres,
+281:                 curp, especialidad, telefono, ciudad
+282:             ]:
+283:                 c.value = ""
+284: 
+285:             estado.value = None
+286:             disciplina.value = None
+287:             page.update()
+288: 
+289:         def cargar_alumnos(filtro=""):
+290:             try:
+291:                 conn = conectar()
+292:                 cursor = conn.cursor(dictionary=True)
+293: 
+294:                 if filtro:
+295:                     cursor.execute("""
+296:                         SELECT * FROM alumnos
+297:                         WHERE matricula LIKE %s OR apellido_paterno LIKE %s
+298:                     """, (f"%{filtro}%", f"%{filtro}%"))
+299:                 else:
+300:                     cursor.execute("SELECT * FROM alumnos")
+301: 
+302:                 datos = cursor.fetchall()
+303:                 conn.close()
+304: 
+305:                 tabla.rows.clear()
+306: 
+307:                 for a in datos:
+308:                     tabla.rows.append(
+309:                         ft.DataRow(
+310:                             cells=[
+311:                                 ft.DataCell(ft.Text(a["matricula"])),
+312:                                 ft.DataCell(ft.Text(
+313:                                     f'{a["nombres"]} {a["apellido_paterno"]}'
+314:                                 )),
+315:                                 ft.DataCell(ft.Text(a["curp"])),
+316:                                 ft.DataCell(ft.Text(a["telefono"])),
+317:                                 ft.DataCell(ft.Text(a["estado"])),
+318:                                 ft.DataCell(ft.Text(a["disciplina"])),
+319:                             ],
+320:                             on_select_changed=lambda e, alumno=a: seleccionar_alumno(alumno)
+321:                         )
+322:                     )
+323: 
+324:                 page.update()
+325: 
+326:             except Exception as ex:
+327:                 mensaje(f"Error al cargar alumnos: {ex}")
+328: 
+329:         def seleccionar_alumno(a):
+330:             matricula.value = a["matricula"]
+331:             matricula.disabled = True
+332:             ap_paterno.value = a["apellido_paterno"]
+333:             ap_materno.value = a["apellido_materno"]
+334:             nombres.value = a["nombres"]
+335:             curp.value = a["curp"]
+336:             especialidad.value = a["especialidad"]
+337:             telefono.value = a["telefono"]
+338:             ciudad.value = a["ciudad_origen"]
+339:             estado.value = a["estado"]
+340:             disciplina.value = a["disciplina"]
+341:             page.update()
+342: 
+343:         def validar_campos():
+344:             if not matricula.value or not ap_paterno.value or not nombres.value or not curp.value:
+345:                 mensaje("Faltan campos obligatorios")
+346:                 return False
+347: 
+348:             curp.value = curp.value.upper()
+349: 
+350:             if not validar_curp(curp.value):
+351:                 mensaje("La CURP debe tener 18 caracteres")
+352:                 return False
+353: 
+354:             if not validar_telefono(telefono.value):
+355:                 mensaje("El teléfono debe tener 10 dígitos")
+356:                 return False
+357: 
+358:             return True
+359: 
+360:         def insertar(e):
+361:             if not validar_campos():
+362:                 return
+363: 
+364:             try:
+365:                 conn = conectar()
+366:                 cursor = conn.cursor()
+367: 
+368:                 cursor.execute("""
+369:                     INSERT INTO alumnos VALUES
+370:                     (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+371:                 """, (
+372:                     matricula.value,
+373:                     ap_paterno.value,
+374:                     ap_materno.value,
+375:                     nombres.value,
+376:                     curp.value.upper(),
+377:                     especialidad.value,
+378:                     telefono.value,
+379:                     ciudad.value,
+380:                     estado.value,
+381:                     disciplina.value
+382:                 ))
+383: 
+384:                 conn.commit()
+385:                 conn.close()
+386: 
+387:                 mensaje("Alumno registrado correctamente", "green")
+388:                 limpiar_campos()
+389:                 cargar_alumnos()
+390: 
+391:             except mysql.connector.IntegrityError:
+392:                 mensaje("Esa matrícula ya existe")
+393:             except Exception as ex:
+394:                 mensaje(f"Error al insertar: {ex}")
+395: 
+396:         def actualizar(e):
+397:             if matricula.disabled is False:
+398:                 mensaje("Selecciona un alumno de la tabla")
+399:                 return
+400: 
+401:             if not validar_campos():
+402:                 return
+403: 
+404:             try:
+405:                 conn = conectar()
+406:                 cursor = conn.cursor()
+407: 
+408:                 cursor.execute("""
+409:                     UPDATE alumnos SET
+410:                     apellido_paterno=%s,
+411:                     apellido_materno=%s,
+412:                     nombres=%s,
+413:                     curp=%s,
+414:                     especialidad=%s,
+415:                     telefono=%s,
+416:                     ciudad_origen=%s,
+417:                     estado=%s,
+418:                     disciplina=%s
+419:                     WHERE matricula=%s
+420:                 """, (
+421:                     ap_paterno.value,
+422:                     ap_materno.value,
+423:                     nombres.value,
+424:                     curp.value.upper(),
+425:                     especialidad.value,
+426:                     telefono.value,
+427:                     ciudad.value,
+428:                     estado.value,
+429:                     disciplina.value,
+430:                     matricula.value
+431:                 ))
+432: 
+433:                 conn.commit()
+434:                 conn.close()
+435: 
+436:                 mensaje("Alumno actualizado", "green")
+437:                 limpiar_campos()
+438:                 cargar_alumnos()
+439: 
+440:             except Exception as ex:
+441:                 mensaje(f"Error al actualizar: {ex}")
+442: 
+443:         def cerrar_dialogo():
+444:             dlg.open = False
+445:             page.update()
+446: 
+447:         def borrar_confirmado(e):
+448:             dlg.open = False
+449:             page.update()
+450: 
+451:             try:
+452:                 conn = conectar()
+453:                 cursor = conn.cursor()
+454: 
+455:                 cursor.execute(
+456:                     "DELETE FROM alumnos WHERE matricula=%s",
+457:                     (matricula.value,)
+458:                 )
+459: 
+460:                 conn.commit()
+461:                 conn.close()
+462: 
+463:                 mensaje("Alumno eliminado", "green")
+464:                 limpiar_campos()
+465:                 cargar_alumnos()
+466: 
+467:             except Exception as ex:
+468:                 mensaje(f"Error al borrar: {ex}")
+469: 
+470:         dlg = ft.AlertDialog(
+471:             modal=True,
+472:             title=ft.Text("Confirmar borrado"),
+473:             content=ft.Text("¿Seguro que quieres eliminar este alumno?"),
+474:             actions=[
+475:                 ft.Button("Cancelar", on_click=lambda e: cerrar_dialogo()),
+476:                 ft.Button("Eliminar", on_click=borrar_confirmado),
+477:             ]
+478:         )
+479: 
+480:         page.dialog = dlg
+481: 
+482:         def borrar(e):
+483:             if not matricula.value:
+484:                 mensaje("Selecciona un alumno")
+485:                 return
+486: 
+487:             dlg.open = True
+488:             page.update()
+489: 
+490:         def buscar_alumno(e):
+491:             cargar_alumnos(buscar.value)
+492: 
+493:         def cerrar_sesion(e):
+494:             usuario_actual["id"] = None
+495:             usuario_actual["nombre"] = None
+496:             mostrar_login()
+497: 
+498:         page.add(
+499:             ft.Container(
+500:         content=ft.Column(
+501:             horizontal_alignment="center",
+502:             controls=[
+503:                 ft.Text("Sistema CRUD Alumnos", size=30, weight="bold", color="#1F3A5F"),
+504:                 ft.Text("Proyecto Leyva - Python + Flet + MySQL"),
+505:                 txt_usuario,
+506:                 txt_password,
+507:                 ft.Row(
+508:                     alignment="center",
+509:                     controls=[
+510:                         ft.Button("Iniciar sesión", on_click=login),
+511:                         ft.Button("Crear cuenta", on_click=crear_cuenta),
+512:                     ],
+513:                 ),
+514:                 form_registro,
+515:             ],
+516:         ),
+517:         padding=40,
+518:         alignment=ft.Alignment(0, 0),
+519:     )
+520: )
+521:                                 ft.Button("Cerrar sesión", on_click=cerrar_sesion)
+522:                             ]
+523:                         ),
+524: 
+525:                         ft.Divider(),
+526: 
+527:                         ft.Text("Registro de Alumno", size=22, weight="bold"),
+528: 
+529:                         ft.Row(
+530:                             [
+531:                                 matricula,
+532:                                 ap_paterno,
+533:                                 ap_materno,
+534:                                 nombres
+535:                             ],
+536:                             wrap=True
+537:                         ),
+538: 
+539:                         ft.Row(
+540:                             [
+541:                                 curp,
+542:                                 especialidad,
+543:                                 telefono,
+544:                                 ciudad
+545:                             ],
+546:                             wrap=True
+547:                         ),
+548: 
+549:                         ft.Row([estado, disciplina], wrap=True),
+550: 
+551:                         ft.Row([
+552:                             ft.Button("Insertar", on_click=insertar),
+553:                             ft.Button("Modificar", on_click=actualizar),
+554:                             ft.Button("Borrar", on_click=borrar),
+555:                             ft.Button("Limpiar", on_click=lambda e: limpiar_campos()),
+556:                         ]),
+557: 
+558:                         ft.Divider(),
+559: 
+560:                         ft.Row([
+561:                             buscar,
+562:                             ft.Button("Buscar", on_click=buscar_alumno),
+563:                             ft.Button("Mostrar todos", on_click=lambda e: cargar_alumnos())
+564:                         ]),
+565: 
+566:                         ft.Container(
+567:                             content=tabla,
+568:                             bgcolor="white",
+569:                             padding=10,
+570:                             border_radius=10
+571:                         )
+572:                     ]
+573:                 )
+574:             )
+575:         )
+576: 
+577:         cargar_alumnos()
+578: 
+579:     try:
+580:         crear_base_y_tablas()
+581:         mostrar_login()
+582:     except Exception as ex:
+583:         page.add(
+584:             ft.Text(
+585:                 f"Error al iniciar el sistema: {ex}",
+586:                 color="red",
+587:                 size=20
+588:             )
+589:         )
+590: 
+591: 
+592: ft.app(target=main)

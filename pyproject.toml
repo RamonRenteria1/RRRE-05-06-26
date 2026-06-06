@@ -1,0 +1,10 @@
+[project]
+name = "leyva"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "flet>=0.85.2",
+    "mysql-connector>=2.2.9",
+]
