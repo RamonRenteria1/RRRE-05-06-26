@@ -44,9 +44,15 @@ def crear_base_y_tablas():
             telefono VARCHAR(10),
             ciudad_origen VARCHAR(100),
             estado VARCHAR(100),
-            disciplina VARCHAR(100)
+            disciplina VARCHAR(100),
+            foto VARCHAR(255)
         )
     """)
+
+    try:
+        cursor.execute("ALTER TABLE alumnos ADD COLUMN foto VARCHAR(255)")
+    except:
+        pass
 
     cursor.execute("""
         INSERT IGNORE INTO usuarios(nombre, usuario, password)
@@ -147,6 +153,10 @@ def main(page: ft.Page):
         )
 
         def login(e):
+            if not txt_usuario.value or not txt_password.value:
+                mostrar_mensaje(lbl, "Completa usuario y contraseña", ROJO)
+                return
+            
             try:
                 conn = conectar()
                 cursor = conn.cursor(dictionary=True)
@@ -167,7 +177,7 @@ def main(page: ft.Page):
                     mostrar_mensaje(lbl, "Usuario o contraseña incorrectos", ROJO)
 
             except:
-                mostrar_mensaje(lbl, "Ocurrió un error", ROJO)
+                mostrar_mensaje(lbl, "Ocurrió un error al iniciar sesión", ROJO)
 
         page.add(
             ft.Container(
@@ -190,12 +200,12 @@ def main(page: ft.Page):
                                 ft.Button("Crear cuenta", on_click=lambda e: mostrar_registro())
                             ]
                         ),
-                        
-                        
+                        lbl
                     ]
                 )
             )
         )
+        page.update()
 
     
     def mostrar_registro():
@@ -278,8 +288,8 @@ def main(page: ft.Page):
                 )
             )
         )
+        page.update()
 
-    # Pantalla principal del CRUD de alumnos
     def mostrar_panel():
         limpiar()
 
@@ -302,6 +312,30 @@ def main(page: ft.Page):
 )
         telefono = ft.TextField(label="Teléfono", width=180, bgcolor=BLANCO, color="white")
         ciudad = ft.TextField(label="Ciudad de origen", width=230, bgcolor=BLANCO, color="white")
+
+        foto = ft.TextField(label="Ruta o link de foto", width=350, bgcolor=BLANCO, color="white")
+        imagen_foto = ft.Container(
+            width=100,
+            height=100,
+            bgcolor="#1F2937",
+            border_radius=5,
+            content=ft.Text("Sin foto", color="gray", size=12)
+        )
+
+        def mostrar_foto(e):
+            if not foto.value:
+                mostrar_mensaje(lbl, "Escribe la ruta o link de la foto", ROJO)
+                return
+
+            foto_minuscula = foto.value.lower()
+
+            if not (foto_minuscula.endswith(".jpg") or foto_minuscula.endswith(".jpeg") or foto_minuscula.endswith(".png")):
+                mostrar_mensaje(lbl, "La imagen debe terminar en .jpg, .jpeg o .png", ROJO)
+                return
+
+            imagen_foto.content = ft.Image(src=foto.value, width=100, height=100, fit="contain")
+            mostrar_mensaje(lbl, "Foto cargada", VERDE)
+            page.update()
 
         telefono.on_change = lambda e: solo_numeros(telefono, 10)
         ap_paterno.on_change = lambda e: solo_letras(ap_paterno)
@@ -337,6 +371,7 @@ def main(page: ft.Page):
                 ft.DataColumn(ft.Text("Teléfono", color=AZUL)),
                 ft.DataColumn(ft.Text("Estado", color=AZUL)),
                 ft.DataColumn(ft.Text("Disciplina", color=AZUL)),
+                ft.DataColumn(ft.Text("Foto", color=AZUL)),
             ],
             rows=[]
         )
@@ -353,12 +388,14 @@ def main(page: ft.Page):
             especialidad.value = ""
             telefono.value = ""
             ciudad.value = ""
+            foto.value = ""
+            imagen_foto.content = ft.Text("Sin foto", color="gray", size=12)
             estado.value = None
             disciplina.value = None
 
             page.update()
 
-        # Mostrar alumnos registrados
+        
         def cargar_alumnos(filtro=""):
             try:
                 conn = conectar()
@@ -379,6 +416,24 @@ def main(page: ft.Page):
 
                 for a in datos:
                     nombre_completo = str(a["nombres"]) + " " + str(a["apellido_paterno"])
+                    
+                    celda_foto = ft.DataCell(ft.Text("Sin foto", color="gray", size=10))
+                    
+                    if a.get("foto") and a["foto"].strip():
+                        try:
+                            foto_url = a["foto"].lower()
+                            if foto_url.endswith(".jpg") or foto_url.endswith(".jpeg") or foto_url.endswith(".png"):
+                                celda_foto = ft.DataCell(
+                                    ft.Container(
+                                        width=50,
+                                        height=50,
+                                        border_radius=5,
+                                        content=ft.Image(src=a["foto"], width=50, height=50, fit="cover")
+                                    )
+                                )
+                        except Exception as ex:
+                            print(f"Error al cargar foto de {a['matricula']}: {str(ex)}")
+                            celda_foto = ft.DataCell(ft.Text("Sin foto", color="gray", size=10))
 
                     tabla.rows.append(
                         ft.DataRow(
@@ -389,6 +444,7 @@ def main(page: ft.Page):
                                 ft.DataCell(ft.Text(str(a["telefono"]), color="#FFFFFF")),
                                 ft.DataCell(ft.Text(str(a["estado"]), color="#FFFFFF")),
                                 ft.DataCell(ft.Text(str(a["disciplina"]), color="#FFFFFF")),
+                                celda_foto,
                             ],
                             on_select_change=lambda e, alumno=a: seleccionar_alumno(alumno)
                         )
@@ -399,6 +455,7 @@ def main(page: ft.Page):
             except:
                 mostrar_mensaje(lbl, "Error al cargar alumnos", ROJO)
 
+        # Carga los datos del alumno seleccionado al formulario
         def seleccionar_alumno(a):
             matricula_original[0] = a["matricula"]
             matricula.value = a["matricula"]
@@ -412,8 +469,17 @@ def main(page: ft.Page):
             ciudad.value = a["ciudad_origen"]
             estado.value = a["estado"]
             disciplina.value = a["disciplina"]
+            
+            if a.get("foto"):
+                foto.value = a["foto"]
+                imagen_foto.content = ft.Image(src=a["foto"], width=100, height=100, fit="contain")
+            else:
+                foto.value = ""
+                imagen_foto.content = ft.Text("Sin foto", color="gray", size=12)
+            
             page.update()
 
+        # Revisa que los datos estén correctos
         def validar_campos():
             if not matricula.value:
                 mostrar_mensaje(lbl, "Falta la matrícula", ROJO)
@@ -453,9 +519,17 @@ def main(page: ft.Page):
                 mostrar_mensaje(lbl, "Selecciona una disciplina", ROJO)
                 return False
 
+            if foto.value:
+                foto_minuscula = foto.value.lower()
+
+                if not (foto_minuscula.endswith(".jpg") or foto_minuscula.endswith(".jpeg") or foto_minuscula.endswith(".png")):
+                    mostrar_mensaje(lbl, "La imagen debe terminar en .jpg, .jpeg o .png", ROJO)
+                    return False
+
             return True
 
         # Guardar alumno nuevo
+        # Guarda un alumno nuevo
         def insertar(e):
             if not validar_campos():
                 return
@@ -475,9 +549,10 @@ def main(page: ft.Page):
                         telefono,
                         ciudad_origen,
                         estado,
-                        disciplina
+                        disciplina,
+                        foto
                     )
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (
                     matricula.value,
                     ap_paterno.value,
@@ -488,7 +563,8 @@ def main(page: ft.Page):
                     telefono.value,
                     ciudad.value,
                     estado.value,
-                    disciplina.value
+                    disciplina.value,
+                    foto.value if foto.value else None
                 ))
 
                 conn.commit()
@@ -504,6 +580,7 @@ def main(page: ft.Page):
                 mostrar_mensaje(lbl, "Error al insertar", ROJO)
 
         # Modificar alumno seleccionado
+        # Actualiza el alumno seleccionado
         def actualizar(e):
             if matricula_original[0] == "":
                 mostrar_mensaje(lbl, "Selecciona un alumno de la tabla", ROJO)
@@ -532,7 +609,8 @@ def main(page: ft.Page):
                     telefono=%s,
                     ciudad_origen=%s,
                     estado=%s,
-                    disciplina=%s
+                    disciplina=%s,
+                    foto=%s
                     WHERE matricula=%s
                 """, (
                     matricula.value,
@@ -545,6 +623,7 @@ def main(page: ft.Page):
                     ciudad.value,
                     estado.value,
                     disciplina.value,
+                    foto.value if foto.value else None,
                     matricula_buscar
                 ))
 
@@ -558,7 +637,6 @@ def main(page: ft.Page):
             except:
                 mostrar_mensaje(lbl, "Error al actualizar", ROJO)
 
-        # Esta función borra un alumno de la base de datos
         def borrar_confirmado(e):
             confirmar_borrar.visible = False
 
@@ -643,6 +721,11 @@ def main(page: ft.Page):
                                     ft.Row([curp, especialidad, telefono, ciudad], wrap=True),
                                     ft.Row([estado, disciplina], wrap=True),
                                     ft.Row([
+                                        foto,
+                                        ft.Button("Mostrar foto", on_click=mostrar_foto),
+                                        imagen_foto
+                                    ], wrap=True),
+                                    ft.Row([
                                         ft.Button("Insertar", on_click=insertar),
                                         ft.Button("Modificar", on_click=actualizar),
                                         ft.Button("Borrar", on_click=borrar),
@@ -677,6 +760,7 @@ def main(page: ft.Page):
             )
         )
 
+        page.update()
         cargar_alumnos()
 
     try:
@@ -684,7 +768,7 @@ def main(page: ft.Page):
         mostrar_login()
     except:
         page.add(ft.Text("Error al iniciar el sistema", color="red", size=20))
+        page.update()
 
 
-crear_base_y_tablas()
-ft.app(target=main)
+ft.run(main)
